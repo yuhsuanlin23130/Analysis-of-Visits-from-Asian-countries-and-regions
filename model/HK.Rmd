@@ -1,0 +1,223 @@
+---
+title: "Forecasting # of visitors from Hong Kong"
+output: html_notebook
+---
+
+
+###CMV
+```{r}
+source("source.R")
+TS_SE1 <- read.csv("HK.csv")
+Visitors <- TS_SE1$HK
+Quarter <- TS_SE1$Month   
+Season <- max(Quarter)
+Period <- TS_SE1$period     
+t  = Period -1               
+n <- length(Visitors)
+
+CMV_SI <- Center_Moving_Average(Visitors, Quarter, Season)
+cat("# # # # The Centered moving average seasonal index # # # ","\n")
+print(CMV_SI)
+write.csv(CMV_SI,"../../temp.csv")
+```
+
+
+### Forecast by seasonal index
+```{r}
+Forecast_Visitors_CMV= Forecast_by_SI(Visitors, Quarter, Season, CMV_SI, t)
+
+cat("# # # # The Forecast_Visitors_y # # # ","\n")
+print(Forecast_Visitors_CMV)
+
+t2 = c(t,n,n+1,n+2,n+3,n+4,n+5,n+6,n+7,n+8,n+9,n+10,n+11)
+lines(t,Visitors, col = "blue", main = "Visitorsagainst Period", xlab = "Period", ylab = "Tourists")
+lines(t, Visitors, type="o", col = "blue")    #actual
+lines(t2,Forecast_Visitors_CMV, type="o", col = "red")  #forecast
+legend("topleft", c("actual", "deseasonalized", "forecast"), fill=c("blue","green", "red"))
+```
+*Residual analysis: *            
+  1.normality test       
+  H0: Errors are normally distributed.        
+  H1: Errors are not normally distributed.         
+  Since pvalue =  0.33 > 0.05, we do not reject H0.
+  
+  2..Homoscedasticity & Heteroscedasticity           
+  H0: The variance of e is the same for all values of x.           
+  H1: The variance of e is not the same for all values of x.         
+  According to the plot, there is no sign of heteroscedasticity.        
+    
+  3.Dependence of the Error Variable         
+  H0 : Randomness exists.        
+  H1 : Randomness does not exist.      
+  Since pvalue = 0.12 > 0.05, we do not reject H0.
+
+
+*Assessment*                
+  The standard error of estimate (11240) is samll compared to mean_y (102116.1). We can conclude that the model fit the data.
+  
+  r^2 = 81.66% of the variation in the fund value is explained by the variation in Des_x. The rest(19.34%) remains unexplained by this model.        
+  
+  Testing the coefficients beta1.      
+  H0: beta1 = 0, H1: beta1 != 0          
+  Since p-value <2e-16 , we are 95% confident to reject H0. There is overwhelming evidence that t affects Des_x.       
+  
+-------------------------------------------------------------------------------------------
+   
+The # of visitors forecast for the next 12 months are 103985.464, 117180.3097, 150412.2532, 168658.8533, 139666.5789, 166648.7616, 164680.4456, 179521.0703, 128326.6933, 130843.7734, 137383.8476, 182221.0477 respectively.
+
+
+
+
+## Smoothing by Linear Regression Model
+```{r}
+SLR_SI <- Linear_Regression_Seasonal_Index(Visitors, Quarter, Season)
+cat("# # # # The Simple Linear_Regression seasonal index # # # ","\n")
+print(SLR_SI)
+```
+
+### Forecast by seasonal index
+```{r}
+Forecast_Visitors_SLR <- Forecast_by_SI(Visitors, Quarter, Season, SLR_SI, t)
+
+#cat("# # # # The Forecast_Visitors_y # # # ","\n")
+#print(Forecast_Visitors_SLR)
+
+lines(t, Visitors, type="o", col = "blue")    #actual
+lines(t2,Forecast_Visitors_SLR, type="o", col = "red")  #forecast
+legend("topleft", c("actual", "deseasonalized", "forecast"), fill=c("blue","green", "red"))
+```
+*Residual analysis:  *              
+Dependence of the Error Variable         
+  H0 : Randomness exists.        
+  H1 : Randomness does not exist.      
+  Since pvalue = 0.02 < 0.05, we  reject H0. We can assume that randomness exists. Therefore, we do not use this method to forecast the number of visitors from Hong Kong.
+
+  
+
+## Regression model by indicator variables
+
+### Line Chart by Quarters on excel
+All the # of visitors for the twelve quarters have positive linear relationship with time.
+
+
+### The Regression Model
+y = beta0 + beta1\*t + beta2\*Q1 + beta3\*Q2 + beta4\*Q3 + beta5\*Q4 +beta6\*Q5 +beta7\*Q6 +beta8\*Q7 +beta\*9Q8 +beta10\*Q9 +beta11\*Q10 +vbeta12Q\*11 +e
+where
+t = time in chronological order
+Qi = indicator variable (0, 1).
+
+### Dummy as Quarter
+```{r}
+Dummy_I <- Season - 1    # n-1 indicator variables
+
+Q <- matrix(nrow =n, ncol = Dummy_I)
+Dummy_Name <- vector("character", length = Dummy_I)
+
+for(i in 1:Dummy_I){
+  Dummy_Name[i] <- paste0("Q", i)
+}
+
+colnames(Q) <- Dummy_Name
+
+for(i in 1:n){
+  for(j in 1:Dummy_I){
+    if(Quarter[i] == j){
+      Q[i,j] <- 1
+    } else {
+      Q[i,j] <- 0
+    }  
+  }
+}
+```
+
+### build the model
+
+```{r}
+Data.Visitors <- cbind(t, Q)  #t, Q1, Q2, Q3...
+linearModelVar1 <- lm(Visitors ~ Data.Visitors)
+cat("\n# # # # The regression model # # # ","\n")
+print(summary(linearModelVar1))
+cat(" ","\n")
+ANOVA_T_lm <- anova(linearModelVar1)
+cat("# # # # The ANOVA Table # # # ","\n")
+print(ANOVA_T_lm)
+
+
+#residual analysis 
+SE_1 <- standarized_errors_MR(Visitors, Data.Visitors)[,1]
+h_1 <- standarized_errors_MR(Visitors, Data.Visitors)[,2]
+D_1 <- standarized_errors_MR(Visitors, Data.Visitors)[,3]
+print(shapiro.test(SE_1) )          # normality
+b0<- coef(linearModelVar1)[1]             # Homoscedasticity & Heteroscedasticity 
+b1 <- coef(linearModelVar1)[2]
+b2 <- coef(linearModelVar1)[3]
+b3 <- coef(linearModelVar1)[4]
+b4 <- coef(linearModelVar1)[5]
+b5 <- coef(linearModelVar1)[6]
+b6 <- coef(linearModelVar1)[7]
+b7 <- coef(linearModelVar1)[8]
+b8 <- coef(linearModelVar1)[9]
+b9 <- coef(linearModelVar1)[10]
+b10 <- coef(linearModelVar1)[11]
+b11 <- coef(linearModelVar1)[12]
+b12 <- coef(linearModelVar1)[13]
+
+yhat <- vector("double", length = n)
+for(i in 1:n) {
+       yhat <- b0 + b1 *t + b2 *Q[i,1] + b3 *Q[i,2] + b4 *Q[i,3]+ b5 *Q[i,4]+ b6 *Q[i,5]+ b7 *Q[i,6]+ b8 *Q[i,7]+ b9 *Q[i,8]+ b10 *Q[i,9]+ b11 *Q[i,10]+ b12 *Q[i,11]
+}
+plot(x = yhat, y = SE_1, xlab = "Predicted visitors", ylab = "Standardized Error", main = "predicted visitors vs Error")
+cat("\nRun_Test:\n")
+print(Run_Test(SE_1))              #errors are independent
+
+
+cat("\nThe Outliers\n")
+Outliers <- abs(SE_1) > 2
+if(sum(Outliers)!=0){
+    print(which(Outliers))
+}else{
+  print("no outliers")
+}  
+cat("\ninfluential observations:\n")
+
+k <- dim(Data.Visitors)[2]
+Inf_Obs <- h_1 > 3*(k+1)/n
+if(sum(Inf_Obs)!=0){
+    print(which(Inf_Obs))
+}else{
+  print("no influential observations")
+} 
+
+#assesment
+cat("\nmean_y:",mean(Visitors),"\n")
+```
+*Residual analysis:*           
+Dependence of the Error Variable      
+  H0 : Randomness exists.      
+  H1 : Randomness does not exist.      
+
+Since the pvalue of run test =  0.006789827 < 0.05, we reject H0. Therefore, we do not use this method to forecast the number of  visitors from Hong Kong.
+
+
+ 
+## Error Metrics
+```{r}
+CMV_MAD <- Mean_Absolute_Deviation(Visitors, Forecast_Visitors_CMV, 1)  #actual y, predicted y
+CMV_MSE <- Mean_Square_Error(Visitors, Forecast_Visitors_CMV, 1)
+CMV_MAPE <- Mean_Absolute_Percentage_Error(Visitors, Forecast_Visitors_CMV, 1)
+Error_M <- matrix(nrow = 3, ncol = 1)
+colnames(Error_M) = c("CMV")
+rownames(Error_M) = c("MAD", "MSE", "MAPE")
+Error_M[1,1] <- CMV_MAD
+Error_M[2,1] <- CMV_MSE
+Error_M[3,1] <- CMV_MAPE
+cat("\n# # # # Error Metrix # # # ","\n")
+print(Error_M)
+```
+
+
+
+-------------------------------------------------------------------------------------------------  
+##Conclusion:
+By CMV, we forecast that the number of visitors from Hong Kong for the next 12 months will be  103985.464, 117180.3097, 150412.2532, 168658.8533, 139666.5789, 166648.7616, 164680.4456, 179521.0703, 128326.6933, 130843.7734, 137383.8476, 182221.0477 respectively.
+
